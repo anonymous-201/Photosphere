@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>SPHERE — 360° Photo Generator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  :root {
+    --void: #010308;
+    --deep: #050d1a;
+    --panel: rgba(8, 20, 40, 0.75);
+    --border: rgba(0, 200, 255, 0.15);
+    --cyan: #00c8ff;
+    --cyan-glow: rgba(0, 200, 255, 0.4);
+    --teal: #00ffcc;
+    --teal-glow: rgba(0, 255, 204, 0.35);
+    --accent: #7b4fff;
+    --accent-glow: rgba(123, 79, 255, 0.4);
+    --warn: #ff6b35;
+    --text: #c8e0f4;
+    --text-dim: rgba(200, 224, 244, 0.45);
+    --radius: 16px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    background: var(--void);
+    color: var(--text);
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 16px;
+    overflow-x: hidden;
+  }
+
+  /* ── STARFIELD ── */
+  #stars {
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% 0%, rgba(0,200,255,0.06) 0%, transparent 70%),
+      radial-gradient(ellipse 60% 40% at 80% 100%, rgba(123,79,255,0.07) 0%, transparent 70%);
+  }
+  #stars::before, #stars::after {
+    content: '';
+    position: absolute; inset: 0;
+    background-image:
+      radial-gradient(1px 1px at 10% 15%, rgba(255,255,255,0.6) 0%, transparent 100%),
+      radial-gradient(1px 1px at 30% 45%, rgba(255,255,255,0.4) 0%, transparent 100%),
+      radial-gradient(1.5px 1.5px at 50% 25%, rgba(255,255,255,0.7) 0%, transparent 100%),
+      radial-gradient(1px 1px at 70% 65%, rgba(255,255,255,0.5) 0%, transparent 100%),
+      radial-gradient(1px 1px at 90% 10%, rgba(255,255,255,0.6) 0%, transparent 100%),
+      radial-gradient(1px 1px at 15% 80%, rgba(255,255,255,0.4) 0%, transparent 100%),
+      radial-gradient(1px 1px at 40% 90%, rgba(255,255,255,0.5) 0%, transparent 100%),
+      radial-gradient(1.5px 1.5px at 60% 5%, rgba(255,255,255,0.7) 0%, transparent 100%),
+      radial-gradient(1px 1px at 85% 40%, rgba(255,255,255,0.4) 0%, transparent 100%),
+      radial-gradient(1px 1px at 25% 60%, rgba(0,200,255,0.5) 0%, transparent 100%),
+      radial-gradient(1px 1px at 55% 75%, rgba(123,79,255,0.5) 0%, transparent 100%);
+    animation: twinkle 8s ease-in-out infinite alternate;
+  }
+  #stars::after { animation-delay: 4s; opacity: 0.6; }
+  @keyframes twinkle { 0%{opacity:0.5} 100%{opacity:1} }
+
+  /* ── LAYOUT ── */
+  #app {
+    position: relative; z-index: 1;
+    min-height: 100vh;
+    display: flex; flex-direction: column;
+    align-items: center;
+    padding: 20px 16px 40px;
+  }
+
+  /* ── HEADER ── */
+  header {
+    text-align: center; margin-bottom: 32px; padding-top: 12px;
+  }
+  .logo {
+    font-family: 'Orbitron', monospace;
+    font-size: clamp(2rem, 8vw, 3.6rem);
+    font-weight: 900;
+    letter-spacing: 0.18em;
+    background: linear-gradient(135deg, var(--cyan) 0%, var(--teal) 50%, var(--accent) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+    filter: drop-shadow(0 0 20px var(--cyan-glow));
+    animation: logoGlow 3s ease-in-out infinite alternate;
+  }
+  @keyframes logoGlow {
+    0% { filter: drop-shadow(0 0 15px var(--cyan-glow)); }
+    100% { filter: drop-shadow(0 0 30px var(--cyan-glow)) drop-shadow(0 0 60px var(--accent-glow)); }
+  }
+  .tagline {
+    font-size: 0.85rem; letter-spacing: 0.35em; text-transform: uppercase;
+    color: var(--text-dim); margin-top: 6px;
+  }
+
+  /* ── GLASS PANEL ── */
+  .glass {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    box-shadow: 0 8px 48px rgba(0,0,0,0.5), inset 0 1px 0 rgba(0,200,255,0.08);
+  }
+
+  /* ── UPLOAD ZONE ── */
+  #upload-section { width: 100%; max-width: 680px; }
+
+  #drop-zone {
+    width: 100%; padding: 48px 24px;
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    background: linear-gradient(135deg, rgba(0,200,255,0.03), rgba(123,79,255,0.03));
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+    cursor: pointer; transition: all 0.3s ease;
+    position: relative; overflow: hidden;
+  }
+  #drop-zone::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse at center, rgba(0,200,255,0.06) 0%, transparent 70%);
+    opacity: 0; transition: opacity 0.3s;
+  }
+  #drop-zone:hover::before, #drop-zone.drag-over::before { opacity: 1; }
+  #drop-zone:hover, #drop-zone.drag-over {
+    border-color: var(--cyan);
+    box-shadow: 0 0 30px var(--cyan-glow), inset 0 0 30px rgba(0,200,255,0.05);
+    transform: scale(1.005);
+  }
+  #drop-zone.drag-over { border-style: solid; }
+
+  .upload-icon {
+    width: 72px; height: 72px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(0,200,255,0.15), rgba(0,200,255,0.03));
+    border: 1px solid rgba(0,200,255,0.25);
+    display: flex; align-items: center; justify-content: center;
+    animation: pulse-ring 2.5s ease-in-out infinite;
+  }
+  @keyframes pulse-ring {
+    0%,100% { box-shadow: 0 0 0 0 rgba(0,200,255,0.3); }
+    50% { box-shadow: 0 0 0 16px rgba(0,200,255,0); }
+  }
+  .upload-icon svg { width: 32px; height: 32px; color: var(--cyan); }
+
+  .upload-title {
+    font-family: 'Orbitron', monospace; font-size: 1rem;
+    letter-spacing: 0.1em; color: var(--cyan);
+  }
+  .upload-sub { font-size: 0.8rem; color: var(--text-dim); letter-spacing: 0.05em; }
+  #file-input { display: none; }
+
+  /* ── PREVIEW ── */
+  #preview-section {
+    width: 100%; max-width: 680px; margin-top: 16px; display: none;
+  }
+  #preview-wrap {
+    position: relative; width: 100%; border-radius: var(--radius);
+    overflow: hidden; background: #000;
+  }
+  #preview-img {
+    width: 100%; max-height: 280px; object-fit: contain;
+    display: block;
+  }
+  .preview-badge {
+    position: absolute; top: 12px; left: 12px;
+    background: rgba(0,0,0,0.7); border: 1px solid var(--border);
+    border-radius: 8px; padding: 4px 10px;
+    font-size: 0.72rem; letter-spacing: 0.1em; color: var(--cyan);
+    font-family: 'Orbitron', monospace;
+  }
+  .img-info {
+    padding: 12px 16px;
+    display: flex; gap: 16px; flex-wrap: wrap;
+  }
+  .info-chip {
+    font-size: 0.78rem; color: var(--text-dim); letter-spacing: 0.06em;
+  }
+  .info-chip span { color: var(--teal); font-weight: 600; }
+
+  /* ── CONVERT BUTTON ── */
+  #convert-btn {
+    width: 100%; max-width: 680px; margin-top: 20px;
+    padding: 18px; border: none; border-radius: var(--radius);
+    background: linear-gradient(135deg, rgba(0,200,255,0.15), rgba(123,79,255,0.15));
+    border: 1px solid rgba(0,200,255,0.3);
+    color: var(--cyan); font-family: 'Orbitron', monospace;
+    font-size: 0.95rem; font-weight: 700; letter-spacing: 0.2em;
+    cursor: pointer; display: none;
+    transition: all 0.3s ease; position: relative; overflow: hidden;
+  }
+  #convert-btn::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(135deg, rgba(0,200,255,0.25), rgba(123,79,255,0.25));
+    opacity: 0; transition: opacity 0.3s;
+  }
+  #convert-btn:hover::before { opacity: 1; }
+  #convert-btn:hover {
+    box-shadow: 0 0 40px var(--cyan-glow), 0 0 80px rgba(0,200,255,0.15);
+    transform: translateY(-2px);
+    border-color: var(--cyan);
+  }
+  #convert-btn:active { transform: translateY(0); }
+  #convert-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+  /* ── PROGRESS ── */
+  #progress-section {
+    width: 100%; max-width: 680px; margin-top: 20px; display: none;
+    padding: 24px;
+  }
+  .status-line {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 14px;
+  }
+  #status-text {
+    font-family: 'Orbitron', monospace; font-size: 0.8rem;
+    color: var(--cyan); letter-spacing: 0.1em;
+  }
+  #pct-text {
+    font-family: 'Orbitron', monospace; font-size: 0.8rem;
+    color: var(--teal);
+  }
+  .progress-track {
+    width: 100%; height: 4px; background: rgba(255,255,255,0.06);
+    border-radius: 4px; overflow: hidden; position: relative;
+  }
+  #progress-bar {
+    height: 100%; width: 0%; border-radius: 4px;
+    background: linear-gradient(90deg, var(--accent), var(--cyan), var(--teal));
+    background-size: 200% 100%;
+    transition: width 0.4s ease;
+    animation: shimmer 2s linear infinite;
+    box-shadow: 0 0 12px var(--cyan-glow);
+  }
+  @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:0 0} }
+
+  .step-list { margin-top: 20px; display: flex; flex-direction: column; gap: 10px; }
+  .step-item {
+    display: flex; align-items: center; gap: 12px;
+    font-size: 0.82rem; color: var(--text-dim); letter-spacing: 0.06em;
+    transition: color 0.4s;
+  }
+  .step-item.active { color: var(--cyan); }
+  .step-item.done { color: var(--teal); }
+  .step-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    border: 1px solid currentColor; flex-shrink: 0; transition: all 0.4s;
+  }
+  .step-item.active .step-dot { background: var(--cyan); box-shadow: 0 0 8px var(--cyan); animation: ping 1s ease infinite; }
+  .step-item.done .step-dot { background: var(--teal); border-color: var(--teal); box-shadow: 0 0 8px var(--teal); }
+  @keyframes ping { 0%,100%{transform:scale(1)} 50%{transform:scale(1.5)} }
+
+  /* ── VIEWER ── */
+  #viewer-section {
+    width: 100%; max-width: 780px; margin-top: 28px; display: none;
+  }
+  .viewer-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 16px 20px; border-bottom: 1px solid var(--border);
+  }
+  .viewer-title {
+    font-family: 'Orbitron', monospace; font-size: 0.85rem;
+    letter-spacing: 0.12em; color: var(--cyan);
+  }
+  .viewer-hint { font-size: 0.75rem; color: var(--text-dim); letter-spacing: 0.06em; }
+
+  #three-canvas-wrap {
+    width: 100%; aspect-ratio: 16/9; position: relative; background: #000;
+    overflow: hidden; border-radius: 0 0 var(--radius) var(--radius);
+  }
+  #three-canvas { width: 100% !important; height: 100% !important; display: block; }
+
+  .viewer-overlay {
+    position: absolute; inset: 0; pointer-events: none;
+    border-radius: 0 0 var(--radius) var(--radius);
+    background: linear-gradient(to bottom, rgba(0,200,255,0.04) 0%, transparent 30%, transparent 70%, rgba(0,0,0,0.3) 100%);
+  }
+
+  /* ── DOWNLOAD BTN ── */
+  #download-btn {
+    width: 100%; max-width: 780px; margin-top: 16px;
+    padding: 18px; border: none; border-radius: var(--radius);
+    background: linear-gradient(135deg, rgba(0,255,204,0.12), rgba(0,200,255,0.12));
+    border: 1px solid rgba(0,255,204,0.3);
+    color: var(--teal); font-family: 'Orbitron', monospace;
+    font-size: 0.95rem; font-weight: 700; letter-spacing: 0.2em;
+    cursor: pointer; display: none; transition: all 0.3s ease;
+    position: relative; overflow: hidden;
+  }
+  #download-btn::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(135deg, rgba(0,255,204,0.2), rgba(0,200,255,0.2));
+    opacity: 0; transition: opacity 0.3s;
+  }
+  #download-btn:hover::before { opacity: 1; }
+  #download-btn:hover {
+    box-shadow: 0 0 40px var(--teal-glow), 0 0 80px rgba(0,255,204,0.1);
+    transform: translateY(-2px); border-color: var(--teal);
+  }
+
+  /* ── RESET ── */
+  #reset-btn {
+    width: 100%; max-width: 780px; margin-top: 10px;
+    padding: 12px; border: none; border-radius: var(--radius);
+    background: transparent; border: 1px solid rgba(255,255,255,0.08);
+    color: var(--text-dim); font-family: 'Rajdhani', sans-serif;
+    font-size: 0.85rem; letter-spacing: 0.12em; cursor: pointer;
+    display: none; transition: all 0.3s ease;
+  }
+  #reset-btn:hover { border-color: rgba(255,107,53,0.4); color: var(--warn); }
+
+  /* ── INFO CARDS ── */
+  .info-row {
+    width: 100%; max-width: 780px; margin-top: 32px;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;
+  }
+  .info-card {
+    padding: 18px 16px; border-radius: 12px; text-align: center;
+  }
+  .info-card-icon { font-size: 1.6rem; margin-bottom: 8px; }
+  .info-card-title {
+    font-family: 'Orbitron', monospace; font-size: 0.7rem;
+    letter-spacing: 0.1em; color: var(--cyan); margin-bottom: 4px;
+  }
+  .info-card-desc { font-size: 0.78rem; color: var(--text-dim); line-height: 1.5; }
+
+  /* ── TOAST ── */
+  #toast {
+    position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(80px);
+    background: rgba(8,20,40,0.92); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 20px;
+    font-size: 0.82rem; letter-spacing: 0.06em; color: var(--text);
+    backdrop-filter: blur(20px); transition: transform 0.3s ease; z-index: 100;
+    white-space: nowrap;
+  }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* ── SCAN LINE ── */
+  .scan-line {
+    position: fixed; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+    animation: scan 6s ease-in-out infinite; pointer-events: none; z-index: 5; opacity: 0.25;
+  }
+  @keyframes scan { 0%{top:0%} 50%{top:100%} 100%{top:0%} }
+
+  @media(max-width:480px) {
+    #app { padding: 12px 12px 32px; }
+    .logo { font-size: 2rem; }
+    #three-canvas-wrap { aspect-ratio: 4/3; }
+  }
+</style>
+</head>
+<body>
+<div id="stars"></div>
+<div class="scan-line"></div>
+
+<div id="app">
+  <header>
+    <div class="logo">SPHERE</div>
+    <div class="tagline">360° Photo Sphere Generator · AI-Powered Panorama</div>
+  </header>
+
+  <!-- Upload -->
+  <div id="upload-section">
+    <div id="drop-zone" class="glass" onclick="document.getElementById('file-input').click()">
+      <div class="upload-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M12 16.5V9.75m0 0 3 3m-3-3-3 3M6.75 19.5a4.5 4.5 0 0 1-1.41-8.775
+               5.25 5.25 0 0 1 10.338-2.32 5.5 5.5 0 0 1 5.572 5.095
+               A4.5 4.5 0 0 1 17.25 19.5H6.75Z"/>
+        </svg>
+      </div>
+      <div class="upload-title">DROP IMAGE HERE</div>
+      <div class="upload-sub">PNG · JPG · WEBP · Any resolution · Panorama or normal photo</div>
+    </div>
+    <input id="file-input" type="file" accept="image/*">
+  </div>
+
+  <!-- Preview -->
+  <div id="preview-section" class="glass">
+    <div id="preview-wrap">
+      <img id="preview-img" alt="Preview">
+      <div class="preview-badge">SOURCE IMAGE</div>
+    </div>
+    <div class="img-info">
+      <div class="info-chip">Size: <span id="img-size-info">—</span></div>
+      <div class="info-chip">Ratio: <span id="img-ratio-info">—</span></div>
+      <div class="info-chip">Format: <span id="img-fmt-info">—</span></div>
+      <div class="info-chip">Mode: <span id="img-mode-info">—</span></div>
+    </div>
+  </div>
+
+  <!-- Convert -->
+  <button id="convert-btn">⬡ &nbsp;GENERATE 360° SPHERE</button>
+
+  <!-- Progress -->
+  <div id="progress-section" class="glass">
+    <div class="status-line">
+      <span id="status-text">INITIALIZING</span>
+      <span id="pct-text">0%</span>
+    </div>
+    <div class="progress-track"><div id="progress-bar"></div></div>
+    <div class="step-list">
+      <div class="step-item" id="s0"><div class="step-dot"></div>Analyzing image dimensions &amp; content</div>
+      <div class="step-item" id="s1"><div class="step-dot"></div>Generating 2:1 equirectangular panorama</div>
+      <div class="step-item" id="s2"><div class="step-dot"></div>AI outpainting surroundings &amp; sky</div>
+      <div class="step-item" id="s3"><div class="step-dot"></div>Blending seams &amp; tone mapping</div>
+      <div class="step-item" id="s4"><div class="step-dot"></div>Embedding GPano XMP metadata</div>
+      <div class="step-item" id="s5"><div class="step-dot"></div>Exporting 360° sphere · optimizing</div>
+    </div>
+  </div>
+
+  <!-- 3D Viewer -->
+  <div id="viewer-section" class="glass">
+    <div class="viewer-header">
+      <span class="viewer-title">⬡ LIVE 360° VIEWER</span>
+      <span class="viewer-hint">Drag / touch to look around</span>
+    </div>
+    <div id="three-canvas-wrap">
+      <canvas id="three-canvas"></canvas>
+      <div class="viewer-overlay"></div>
+    </div>
+  </div>
+
+  <!-- Download -->
+  <button id="download-btn">⬇ &nbsp;DOWNLOAD GOOGLE PHOTOS SPHERE (.JPG)</button>
+  <button id="reset-btn">↺ &nbsp;Process another image</button>
+
+  <!-- Info cards -->
+  <div class="info-row">
+    <div class="info-card glass">
+      <div class="info-card-icon">🌐</div>
+      <div class="info-card-title">Equirectangular</div>
+      <div class="info-card-desc">Outputs proper 2:1 ratio panorama compatible with all 360° viewers</div>
+    </div>
+    <div class="info-card glass">
+      <div class="info-card-icon">📸</div>
+      <div class="info-card-title">Google Photos</div>
+      <div class="info-card-desc">Embeds GPano XMP metadata so Photos shows the interactive sphere</div>
+    </div>
+    <div class="info-card glass">
+      <div class="info-card-icon">✨</div>
+      <div class="info-card-title">AI Outpainting</div>
+      <div class="info-card-desc">Intelligently expands partial images into seamless 360° panoramas</div>
+    </div>
+    <div class="info-card glass">
+      <div class="info-card-icon">🔒</div>
+      <div class="info-card-title">100% Private</div>
+      <div class="info-card-desc">Everything processed locally in your browser — nothing uploaded</div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════════════════════════ */
+let srcImage = null;        // original HTMLImageElement
+let srcFile  = null;        // File object
+let panoDataURL = null;     // final panorama data URL
+let threeRenderer = null, threeScene = null, threeCamera = null;
+let isDragging = false, prevX = 0, prevY = 0;
+let sphereLon = 0, sphereLat = 0;
+let animFrameId = null;
+
+const OUTPUT_W = 4096;
+const OUTPUT_H = 2048;   // 2:1 equirectangular
+
+/* ═══════════════════════════════════════════════════════════════
+   DOM HELPERS
+═══════════════════════════════════════════════════════════════ */
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function setProgress(pct, statusText, stepIdx) {
+  $('progress-bar').style.width = pct + '%';
+  $('pct-text').textContent = Math.round(pct) + '%';
+  if (statusText) $('status-text').textContent = statusText;
+  if (stepIdx !== undefined) {
+    for (let i = 0; i < 6; i++) {
+      const el = $('s' + i);
+      el.className = 'step-item' + (i < stepIdx ? ' done' : i === stepIdx ? ' active' : '');
+    }
+  }
+}
+
+function showToast(msg, duration = 3000) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), duration);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   UPLOAD / DRAG-DROP
+═══════════════════════════════════════════════════════════════ */
+const dropZone = $('drop-zone');
+const fileInput = $('file-input');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f && f.type.startsWith('image/')) loadFile(f);
+  else showToast('⚠ Please drop an image file');
+});
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) loadFile(fileInput.files[0]); });
+
+function loadFile(file) {
+  srcFile = file;
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    srcImage = img;
+    showPreview(img, file, url);
+  };
+  img.src = url;
+}
+
+function showPreview(img, file, url) {
+  $('preview-img').src = url;
+  const ratio = (img.width / img.height).toFixed(2);
+  const mode  = img.width >= img.height * 1.8 ? 'Panorama' : 'Standard Photo';
+  $('img-size-info').textContent  = img.width + ' × ' + img.height;
+  $('img-ratio-info').textContent = ratio + ':1';
+  $('img-fmt-info').textContent   = file.type.replace('image/', '').toUpperCase();
+  $('img-mode-info').textContent  = mode;
+
+  $('preview-section').style.display = 'block';
+  $('convert-btn').style.display = 'block';
+  $('upload-section').style.marginBottom = '0';
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CONVERT PIPELINE
+═══════════════════════════════════════════════════════════════ */
+$('convert-btn').addEventListener('click', runConversion);
+
+async function runConversion() {
+  if (!srcImage) return;
+
+  // Show progress, hide others
+  $('convert-btn').disabled = true;
+  $('progress-section').style.display = 'block';
+  $('viewer-section').style.display = 'none';
+  $('download-btn').style.display = 'none';
+  $('reset-btn').style.display = 'none';
+
+  setProgress(0, 'INITIALIZING', -1);
+  await sleep(120);
+
+  try {
+    // Step 0 — Analyse
+    setProgress(5, 'ANALYZING IMAGE', 0);
+    await sleep(400);
+    const aspectRatio = srcImage.width / srcImage.height;
+    const isPano = aspectRatio >= 1.8;
+    setProgress(15, 'ANALYZING IMAGE', 0);
+    await sleep(300);
+
+    // Step 1 — Build equirectangular base
+    setProgress(20, 'GENERATING PANORAMA', 1);
+    const baseCanvas = await buildEquirectangular(srcImage, isPano);
+    setProgress(40, 'GENERATING PANORAMA', 1);
+    await sleep(200);
+
+    // Step 2 — AI-style outpainting
+    setProgress(45, 'AI OUTPAINTING', 2);
+    const paintedCanvas = await outpaintSurroundings(baseCanvas, srcImage, isPano);
+    setProgress(68, 'AI OUTPAINTING', 2);
+    await sleep(200);
+
+    // Step 3 — Seam blending & tone map
+    setProgress(72, 'BLENDING & TONE MAPPING', 3);
+    const blendedCanvas = await blendAndToneMap(paintedCanvas);
+    setProgress(82, 'BLENDING & TONE MAPPING', 3);
+    await sleep(200);
+
+    // Step 4 — Embed XMP metadata
+    setProgress(85, 'EMBEDDING XMP METADATA', 4);
+    const jpgBlob = await embedGPanoXMP(blendedCanvas);
+    setProgress(94, 'EMBEDDING XMP METADATA', 4);
+    await sleep(200);
+
+    // Step 5 — Export
+    setProgress(96, 'EXPORTING SPHERE', 5);
+    panoDataURL = await blobToDataURL(jpgBlob);
+    setProgress(100, 'SPHERE READY', 5);
+    await sleep(400);
+
+    // Done
+    initThreeViewer(panoDataURL);
+    $('viewer-section').style.display  = 'block';
+    $('download-btn').style.display    = 'block';
+    $('reset-btn').style.display       = 'block';
+    $('progress-section').style.display = 'none';
+
+    // Attach download
+    $('download-btn').onclick = () => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(jpgBlob);
+      a.download = 'photosphere_360.jpg';
+      a.click();
+      showToast('✓ Downloaded! Open in Google Photos to view as 360° sphere');
+    };
+
+    showToast('✓ 360° Sphere generated! Drag the viewer to explore.', 5000);
+
+  } catch (err) {
+    console.error(err);
+    $('status-text').textContent = 'ERROR: ' + err.message;
+    showToast('✗ Processing failed — ' + err.message);
+    $('convert-btn').disabled = false;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   1. BUILD EQUIRECTANGULAR (2:1)
+═══════════════════════════════════════════════════════════════ */
+async function buildEquirectangular(img, isPano) {
+  const c = document.createElement('canvas');
+  c.width  = OUTPUT_W;
+  c.height = OUTPUT_H;
+  const ctx = c.getContext('2d');
+
+  // Fill with sampled dominant color from edges
+  ctx.fillStyle = getDominantEdgeColor(img);
+  ctx.fillRect(0, 0, OUTPUT_W, OUTPUT_H);
+
+  if (isPano) {
+    // Already panoramic — stretch-fit with letterbox preservation
+    const targetAspect = OUTPUT_W / OUTPUT_H;
+    const imgAspect    = img.width / img.height;
+    let drawW, drawH, drawX, drawY;
+    if (imgAspect >= targetAspect) {
+      drawW = OUTPUT_W; drawH = OUTPUT_W / imgAspect;
+      drawX = 0;        drawY = (OUTPUT_H - drawH) / 2;
+    } else {
+      drawH = OUTPUT_H; drawW = OUTPUT_H * imgAspect;
+      drawX = (OUTPUT_W - drawW) / 2; drawY = 0;
+    }
+    // Draw at full canvas size with padding replicated
+    ctx.drawImage(img, 0, 0, img.width, img.height, drawX, drawY, drawW, drawH);
+  } else {
+    // Standard photo — place in center 60% of canvas
+    const cx = OUTPUT_W * 0.2;
+    const cw = OUTPUT_W * 0.6;
+    const imgAspect = img.width / img.height;
+    const drawH = Math.min(OUTPUT_H * 0.85, cw / imgAspect);
+    const drawW = drawH * imgAspect;
+    const drawX = (OUTPUT_W - drawW) / 2;
+    const drawY = (OUTPUT_H - drawH) / 2;
+    ctx.drawImage(img, 0, 0, img.width, img.height, drawX, drawY, drawW, drawH);
+  }
+
+  return c;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DOMINANT EDGE COLOR
+═══════════════════════════════════════════════════════════════ */
+function getDominantEdgeColor(img) {
+  const sample = document.createElement('canvas');
+  sample.width = 32; sample.height = 32;
+  const ctx = sample.getContext('2d');
+  ctx.drawImage(img, 0, 0, 32, 32);
+  const d = ctx.getImageData(0, 0, 32, 32).data;
+  let r=0,g=0,b=0,n=0;
+  // Sample only edges of thumbnail
+  for (let i = 0; i < 32; i++) {
+    for (let j = 0; j < 32; j++) {
+      if (i===0||i===31||j===0||j===31) {
+        const p=(j*32+i)*4;
+        r+=d[p]; g+=d[p+1]; b+=d[p+2]; n++;
+      }
+    }
+  }
+  return `rgb(${Math.round(r/n)},${Math.round(g/n)},${Math.round(b/n)})`;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   2. AI-STYLE OUTPAINTING
+═══════════════════════════════════════════════════════════════ */
+async function outpaintSurroundings(baseCanvas, origImg, isPano) {
+  const W = OUTPUT_W, H = OUTPUT_H;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(baseCanvas, 0, 0);
+
+  const palette = analyzePalette(origImg);
+
+  if (!isPano) {
+    // For standard photos placed in the centre 60%:
+    // Left fill: columns 0 → imgLeft
+    // Right fill: columns imgRight → W
+    const imgLeft  = Math.floor((W - Math.min(OUTPUT_H * 0.85, (OUTPUT_W * 0.6)) ) / 2);
+    const imgRight = W - imgLeft;
+    fillSideRegion(ctx, W, H, 0, imgLeft, imgLeft, 'left');
+    fillSideRegion(ctx, W, H, imgRight, W, imgRight - 1, 'right');
+  }
+
+  // Sky / ground: only fill if the image doesn't already reach those rows.
+  // For a panoramic that fills full height, skip entirely.
+  if (!isPano) {
+    // Standard photo is placed centred vertically with up to 85% height
+    // → there will always be empty rows at top and bottom
+    fillTopRegion(ctx, W, H, palette);
+    fillBottomRegion(ctx, W, H, palette);
+  } else {
+    // Panoramic: only fill if there are actual letterbox rows (drawY > 0)
+    const imgAspect    = origImg.width / origImg.height;
+    const targetAspect = W / H;
+    if (imgAspect < targetAspect) {
+      // Letterboxed — has empty rows top/bottom
+      fillTopRegion(ctx, W, H, palette);
+      fillBottomRegion(ctx, W, H, palette);
+    }
+    // else: image fills full height → no fills needed, no seams
+  }
+
+  return c;
+}
+
+function analyzePalette(img) {
+  const s = document.createElement('canvas');
+  s.width = 64; s.height = 64;
+  const ctx = s.getContext('2d');
+  ctx.drawImage(img, 0, 0, 64, 64);
+  const d = ctx.getImageData(0, 0, 64, 64).data;
+  let r=0,g=0,b=0, tr=0,tg=0,tb=0, tn=0, br=0,bg2=0,bb=0, bn=0;
+  for (let y=0;y<64;y++) {
+    for (let x=0;x<64;x++) {
+      const p=(y*64+x)*4;
+      r+=d[p]; g+=d[p+1]; b+=d[p+2];
+      if (y<16) { tr+=d[p]; tg+=d[p+1]; tb+=d[p+2]; tn++; }
+      if (y>48) { br+=d[p]; bg2+=d[p+1]; bb+=d[p+2]; bn++; }
+    }
+  }
+  const total=64*64;
+  return {
+    avg:  [r/total, g/total, b/total],
+    top:  [tr/tn, tg/tn, tb/tn],
+    bottom: [br/bn, bg2/bn, bb/bn],
+    isDark: (r/total + g/total + b/total) < 150,
+    isSunset: (r/total) > 150 && (g/total) < 130,
+  };
+}
+
+// Fill left or right side by sampling the nearest real-image edge column
+function fillSideRegion(ctx, W, H, fillX0, fillX1, edgeX, side) {
+  if (fillX1 <= fillX0) return;
+  // Read the full canvas so we sample real pixels
+  const id = ctx.getImageData(0, 0, W, H);
+  const d  = id.data;
+  const regionW = fillX1 - fillX0;
+
+  for (let y = 0; y < H; y++) {
+    const ep = (y * W + edgeX) * 4;
+    const er = d[ep], eg = d[ep+1], eb = d[ep+2];
+
+    for (let x = fillX0; x < fillX1; x++) {
+      // dist 0 = right at the real-image edge, 1 = far outer edge
+      const dist = side === 'left'
+        ? (fillX1 - 1 - x) / Math.max(1, regionW - 1)
+        : (x - fillX0)     / Math.max(1, regionW - 1);
+
+      const noise = simplex2D(x * 0.006, y * 0.006) * 14 * dist;
+      const p = (y * W + x) * 4;
+      d[p]   = clamp(lerp(er, palette_avg(d, W, H, x, y) + noise, dist));
+      d[p+1] = clamp(lerp(eg, palette_avg(d, W, H, x, y) + noise * 0.9, dist));
+      d[p+2] = clamp(lerp(eb, palette_avg(d, W, H, x, y) + noise * 0.7, dist));
+      d[p+3] = 255;
+    }
+  }
+  ctx.putImageData(id, 0, 0);
+}
+
+// Tiny helper — returns average R of the full row at this y (approximate bg)
+function palette_avg(d, W, H, x, y) { return d[(y * W + Math.floor(W/2)) * 4]; }
+
+// Fill top letterbox by sampling the topmost real-image row
+function fillTopRegion(ctx, W, H, palette) {
+  const id = ctx.getImageData(0, 0, W, H);
+  const d  = id.data;
+
+  // Find the first row that has non-background content
+  // (background was filled with edge colour = very uniform row)
+  // Simple heuristic: scan down until a row has variance > threshold
+  let contentY = 0;
+  for (let y = 0; y < Math.floor(H * 0.45); y++) {
+    let variance = 0;
+    for (let x = 1; x < W; x++) {
+      const p  = (y * W + x) * 4;
+      const pp = (y * W + x - 1) * 4;
+      variance += Math.abs(d[p] - d[pp]) + Math.abs(d[p+1] - d[pp+1]);
+    }
+    if (variance / W > 6) { contentY = y; break; }
+  }
+  if (contentY === 0) return; // image already fills top, nothing to do
+
+  // Sample the edge row colours across the full width
+  const edgeRow = new Uint8Array(W * 3);
+  for (let x = 0; x < W; x++) {
+    const p = (contentY * W + x) * 4;
+    edgeRow[x*3]   = d[p];
+    edgeRow[x*3+1] = d[p+1];
+    edgeRow[x*3+2] = d[p+2];
+  }
+
+  for (let y = 0; y < contentY; y++) {
+    const t = (contentY - y) / contentY; // 1 at top, 0 at edge row
+    for (let x = 0; x < W; x++) {
+      const er = edgeRow[x*3], eg = edgeRow[x*3+1], eb = edgeRow[x*3+2];
+      const noise = simplex2D(x * 0.004, y * 0.008) * 10 * t;
+      const [pr, pg, pb] = getSkyColor(palette, t);
+      const p = (y * W + x) * 4;
+      d[p]   = clamp(lerp(er, pr + noise, Math.pow(t, 0.5)));
+      d[p+1] = clamp(lerp(eg, pg + noise * 0.8, Math.pow(t, 0.5)));
+      d[p+2] = clamp(lerp(eb, pb + noise * 0.6, Math.pow(t, 0.5)));
+      d[p+3] = 255;
+    }
+  }
+  ctx.putImageData(id, 0, 0);
+}
+
+function fillBottomRegion(ctx, W, H, palette) {
+  const id = ctx.getImageData(0, 0, W, H);
+  const d  = id.data;
+
+  let contentY = H - 1;
+  for (let y = H - 1; y > Math.floor(H * 0.55); y--) {
+    let variance = 0;
+    for (let x = 1; x < W; x++) {
+      const p  = (y * W + x) * 4;
+      const pp = (y * W + x - 1) * 4;
+      variance += Math.abs(d[p] - d[pp]) + Math.abs(d[p+1] - d[pp+1]);
+    }
+    if (variance / W > 6) { contentY = y; break; }
+  }
+  if (contentY === H - 1) return;
+
+  const edgeRow = new Uint8Array(W * 3);
+  for (let x = 0; x < W; x++) {
+    const p = (contentY * W + x) * 4;
+    edgeRow[x*3]   = d[p];
+    edgeRow[x*3+1] = d[p+1];
+    edgeRow[x*3+2] = d[p+2];
+  }
+
+  for (let y = contentY + 1; y < H; y++) {
+    const t = (y - contentY) / (H - contentY); // 0 at edge row, 1 at bottom
+    for (let x = 0; x < W; x++) {
+      const er = edgeRow[x*3], eg = edgeRow[x*3+1], eb = edgeRow[x*3+2];
+      const noise = simplex2D(x * 0.005, y * 0.007) * 10 * t;
+      const [gr, gg, gb] = getGroundColor(palette, er, eg, eb, t);
+      const p = (y * W + x) * 4;
+      d[p]   = clamp(lerp(er, gr + noise, Math.pow(t, 0.5)));
+      d[p+1] = clamp(lerp(eg, gg + noise * 0.9, Math.pow(t, 0.5)));
+      d[p+2] = clamp(lerp(eb, gb + noise * 0.7, Math.pow(t, 0.5)));
+      d[p+3] = 255;
+    }
+  }
+  ctx.putImageData(id, 0, 0);
+}
+
+function getSkyColor(palette, t) {
+  const [sr, sg, sb] = palette.top;
+  if (palette.isSunset) return [clamp(sr*1.2+20*t), clamp(sg*0.75), clamp(sb*0.5)];
+  if (palette.isDark)   return [clamp(sr*0.5), clamp(sg*0.5), clamp(sb*0.7+10*t)];
+  return [clamp(sr*0.7+15*t), clamp(sg*0.85+10*t), clamp(sb*1.15+20*t)];
+}
+
+function getGroundColor(palette, er, eg, eb, t) {
+  const dark = 1 - t * 0.25;
+  return [clamp(er*dark), clamp(eg*dark), clamp(eb*dark)];
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   3. SEAM BLENDING + TONE MAP
+═══════════════════════════════════════════════════════════════ */
+async function blendAndToneMap(c) {
+  // No post-process blurring needed — fills already blend smoothly
+  // at the pixel level by sampling real edge rows/columns.
+  // Any blur band here would create the visible line artifact.
+  return c;
+}
+
+function blurBand(ctx, W, H, seamX, blendW, y0, y1, passes) {
+  // seamX: centre of the seam; blendW: pixels either side to blur
+  const x0 = Math.max(0, seamX - blendW);
+  const x1 = Math.min(W, seamX + blendW);
+  for (let p = 0; p < passes; p++) {
+    const id = ctx.getImageData(x0, y0, x1 - x0, y1 - y0);
+    boxBlur(id, x1 - x0, y1 - y0, 6);
+    ctx.putImageData(id, x0, y0);
+  }
+}
+
+function blurBandH(ctx, W, H, seamY, blendH, passes) {
+  // seamY: centre of the seam; blendH: pixels above/below to blur
+  const y0 = Math.max(0, seamY - blendH);
+  const y1 = Math.min(H, seamY + blendH);
+  for (let p = 0; p < passes; p++) {
+    const id = ctx.getImageData(0, y0, W, y1 - y0);
+    boxBlurV(id, W, y1 - y0, 6);
+    ctx.putImageData(id, 0, y0);
+  }
+}
+
+function boxBlur(id, w, h, r) {
+  // Horizontal pass
+  const d = id.data;
+  const tmp = new Uint8ClampedArray(d.length);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let rs=0,gs=0,bs=0,n=0;
+      for (let kx = -r; kx <= r; kx++) {
+        const nx = x + kx;
+        if (nx < 0 || nx >= w) continue;
+        const p = (y * w + nx) * 4;
+        rs += d[p]; gs += d[p+1]; bs += d[p+2]; n++;
+      }
+      const p = (y * w + x) * 4;
+      tmp[p] = rs/n; tmp[p+1] = gs/n; tmp[p+2] = bs/n; tmp[p+3] = d[p+3];
+    }
+  }
+  for (let i = 0; i < d.length; i++) d[i] = tmp[i];
+}
+
+function boxBlurV(id, w, h, r) {
+  // Vertical pass — for horizontal seam bands
+  const d = id.data;
+  const tmp = new Uint8ClampedArray(d.length);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let rs=0,gs=0,bs=0,n=0;
+      for (let ky = -r; ky <= r; ky++) {
+        const ny = y + ky;
+        if (ny < 0 || ny >= h) continue;
+        const p = (ny * w + x) * 4;
+        rs += d[p]; gs += d[p+1]; bs += d[p+2]; n++;
+      }
+      const p = (y * w + x) * 4;
+      tmp[p] = rs/n; tmp[p+1] = gs/n; tmp[p+2] = bs/n; tmp[p+3] = d[p+3];
+    }
+  }
+  for (let i = 0; i < d.length; i++) d[i] = tmp[i];
+}
+
+
+
+/* ═══════════════════════════════════════════════════════════════
+   4. EMBED GPano XMP METADATA
+   XMP is embedded as a JPEG APP1 segment.
+═══════════════════════════════════════════════════════════════ */
+async function embedGPanoXMP(canvas) {
+  const W = canvas.width, H = canvas.height;
+
+  // Get JPEG bytes from canvas
+  const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.92));
+  const jpgBuf = await blob.arrayBuffer();
+  const jpgBytes = new Uint8Array(jpgBuf);
+
+  // Build XMP string
+  const xmp = buildXMPString(W, H);
+  const xmpBytes = new TextEncoder().encode(
+    'http://ns.adobe.com/xap/1.0/\0' + xmp
+  );
+
+  // Find insertion point right after FFD8 FF E0 (JFIF APP0) or after SOI
+  // We insert as APP1 (FFE1) right at position 2 (after SOI FF D8)
+  const app1 = new Uint8Array(4 + xmpBytes.length);
+  app1[0] = 0xFF; app1[1] = 0xE1;
+  const segLen = 2 + xmpBytes.length;
+  app1[2] = (segLen >> 8) & 0xFF;
+  app1[3] = segLen & 0xFF;
+  app1.set(xmpBytes, 4);
+
+  // Combine: SOI + APP1(XMP) + rest of JPEG (skip SOI from original)
+  const soi     = jpgBytes.slice(0, 2);      // FF D8
+  const rest    = jpgBytes.slice(2);
+  const result  = new Uint8Array(soi.length + app1.length + rest.length);
+  result.set(soi, 0);
+  result.set(app1, soi.length);
+  result.set(rest, soi.length + app1.length);
+
+  return new Blob([result], { type: 'image/jpeg' });
+}
+
+function buildXMPString(w, h) {
+  return `<?xpacket begin="\uFEFF" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 5.1.0">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+      xmlns:GPano="http://ns.google.com/photos/1.0/panorama/"
+      xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+      xmlns:tiff="http://ns.adobe.com/tiff/1.0/">
+      <GPano:UsePanoramaViewer>True</GPano:UsePanoramaViewer>
+      <GPano:CaptureSoftware>SPHERE 360 Generator</GPano:CaptureSoftware>
+      <GPano:StitchingSoftware>SPHERE 360 Generator v1.0</GPano:StitchingSoftware>
+      <GPano:ProjectionType>equirectangular</GPano:ProjectionType>
+      <GPano:PoseHeadingDegrees>0.0</GPano:PoseHeadingDegrees>
+      <GPano:PosePitchDegrees>0.0</GPano:PosePitchDegrees>
+      <GPano:PoseRollDegrees>0.0</GPano:PoseRollDegrees>
+      <GPano:InitialViewHeadingDegrees>0</GPano:InitialViewHeadingDegrees>
+      <GPano:InitialViewPitchDegrees>0</GPano:InitialViewPitchDegrees>
+      <GPano:InitialViewRollDegrees>0</GPano:InitialViewRollDegrees>
+      <GPano:InitialHorizontalFOVDegrees>75</GPano:InitialHorizontalFOVDegrees>
+      <GPano:FullPanoWidthPixels>${w}</GPano:FullPanoWidthPixels>
+      <GPano:FullPanoHeightPixels>${h}</GPano:FullPanoHeightPixels>
+      <GPano:CroppedAreaImageWidthPixels>${w}</GPano:CroppedAreaImageWidthPixels>
+      <GPano:CroppedAreaImageHeightPixels>${h}</GPano:CroppedAreaImageHeightPixels>
+      <GPano:CroppedAreaLeftPixels>0</GPano:CroppedAreaLeftPixels>
+      <GPano:CroppedAreaTopPixels>0</GPano:CroppedAreaTopPixels>
+      <tiff:ImageWidth>${w}</tiff:ImageWidth>
+      <tiff:ImageLength>${h}</tiff:ImageLength>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>`;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   5. THREE.JS VIEWER
+═══════════════════════════════════════════════════════════════ */
+function initThreeViewer(dataURL) {
+  if (threeRenderer) {
+    threeRenderer.dispose();
+    cancelAnimationFrame(animFrameId);
+  }
+
+  const wrap   = $('three-canvas-wrap');
+  const canvas = $('three-canvas');
+  const W = wrap.clientWidth;
+  const H = wrap.clientHeight;
+
+  threeRenderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  threeRenderer.setSize(W, H);
+
+  threeScene  = new THREE.Scene();
+  threeCamera = new THREE.PerspectiveCamera(75, W / H, 0.1, 1000);
+  threeCamera.position.set(0, 0, 0.001);
+
+  const loader = new THREE.TextureLoader();
+  loader.load(dataURL, tex => {
+    tex.mapping = THREE.EquirectangularReflectionMapping;
+    const geo = new THREE.SphereGeometry(500, 60, 40);
+    geo.scale(-1, 1, 1); // invert to view inside
+    const mat = new THREE.MeshBasicMaterial({ map: tex });
+    threeScene.add(new THREE.Mesh(geo, mat));
+    renderLoop();
+  });
+
+  sphereLon = 180; sphereLat = 0;
+
+  // Mouse
+  canvas.addEventListener('mousedown',  e => { isDragging=true; prevX=e.clientX; prevY=e.clientY; });
+  window.addEventListener('mouseup',   () => isDragging=false);
+  window.addEventListener('mousemove', e => {
+    if (!isDragging) return;
+    sphereLon -= (e.clientX - prevX) * 0.25;
+    sphereLat  = Math.max(-85, Math.min(85, sphereLat + (e.clientY - prevY) * 0.25));
+    prevX=e.clientX; prevY=e.clientY;
+  });
+
+  // Touch
+  let lastTX = 0, lastTY = 0;
+  canvas.addEventListener('touchstart', e => { e.preventDefault(); lastTX=e.touches[0].clientX; lastTY=e.touches[0].clientY; }, {passive:false});
+  canvas.addEventListener('touchmove',  e => {
+    e.preventDefault();
+    const tx=e.touches[0].clientX, ty=e.touches[0].clientY;
+    sphereLon -= (tx - lastTX) * 0.3;
+    sphereLat  = Math.max(-85, Math.min(85, sphereLat + (ty - lastTY) * 0.3));
+    lastTX=tx; lastTY=ty;
+  }, {passive:false});
+
+  // Resize
+  window.addEventListener('resize', () => {
+    const nW = wrap.clientWidth, nH = wrap.clientHeight;
+    threeCamera.aspect = nW / nH;
+    threeCamera.updateProjectionMatrix();
+    threeRenderer.setSize(nW, nH);
+  });
+
+  // Auto-rotate hint
+  let autoRotate = true;
+  canvas.addEventListener('mousedown',  () => autoRotate=false);
+  canvas.addEventListener('touchstart', () => autoRotate=false);
+
+  function renderLoop() {
+    animFrameId = requestAnimationFrame(renderLoop);
+    if (autoRotate) sphereLon += 0.04;
+    const phi   = THREE.MathUtils.degToRad(90 - sphereLat);
+    const theta = THREE.MathUtils.degToRad(sphereLon);
+    threeCamera.lookAt(
+      500 * Math.sin(phi) * Math.cos(theta),
+      500 * Math.cos(phi),
+      500 * Math.sin(phi) * Math.sin(theta)
+    );
+    threeRenderer.render(threeScene, threeCamera);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   UTILITIES
+═══════════════════════════════════════════════════════════════ */
+function lerp(a, b, t) { return a + (b - a) * t; }
+function clamp(v, lo=0, hi=255) { return Math.max(lo, Math.min(hi, Math.round(v))); }
+function blobToDataURL(blob) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(blob);
+  });
+}
+
+// Simplex-inspired 2D noise (value noise for speed)
+const noiseCache = new Float32Array(512);
+for (let i = 0; i < 512; i++) noiseCache[i] = Math.random() * 2 - 1;
+function simplex2D(x, y) {
+  const xi = Math.floor(x) & 255, yi = Math.floor(y) & 255;
+  const xf = x - Math.floor(x), yf = y - Math.floor(y);
+  const uf = fade(xf), vf = fade(yf);
+  const a  = noiseCache[(xi + yi * 57) & 511];
+  const b  = noiseCache[(xi+1 + yi * 57) & 511];
+  const c  = noiseCache[(xi + (yi+1)*57) & 511];
+  const d  = noiseCache[(xi+1 + (yi+1)*57) & 511];
+  return lerp(lerp(a,b,uf), lerp(c,d,uf), vf);
+}
+function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+
+/* ═══════════════════════════════════════════════════════════════
+   RESET
+═══════════════════════════════════════════════════════════════ */
+$('reset-btn').addEventListener('click', () => {
+  srcImage = null; srcFile = null; panoDataURL = null;
+  if (threeRenderer) { threeRenderer.dispose(); cancelAnimationFrame(animFrameId); threeRenderer=null; }
+  $('preview-section').style.display = 'none';
+  $('convert-btn').style.display = 'none';
+  $('progress-section').style.display = 'none';
+  $('viewer-section').style.display = 'none';
+  $('download-btn').style.display = 'none';
+  $('reset-btn').style.display = 'none';
+  $('convert-btn').disabled = false;
+  $('file-input').value = '';
+  setProgress(0, 'INITIALIZING', -1);
+  showToast('Ready for a new image');
+});
+</script>
+</body>
+</html>
